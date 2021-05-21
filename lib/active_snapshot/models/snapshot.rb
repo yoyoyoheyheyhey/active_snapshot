@@ -67,8 +67,18 @@ module ActiveSnapshot
         end
 
         ### Create or Update Items from Snapshot Items
-        cached_snapshot_items.each do |snapshot_item|
-          snapshot_item.restore_item!
+        item_type_and_snapshot_items = cached_snapshot_items.group_by(&:item_type)
+
+        item_type_and_snapshot_items.each_with_object([]) do |(item_type, _), restored_item_types|
+          target_item_types = collect_item_type_ancestors(item_type).unshift(item_type) - restored_item_types
+
+          target_item_types.reverse_each do |target_item_type|
+            item_type_and_snapshot_items[target_item_type].each(&:restore_item!)
+
+            restored_item_types << target_item_type
+
+            item_type_and_snapshot_items.delete(target_item_type)
+          end
         end
       end
 
@@ -98,6 +108,28 @@ module ActiveSnapshot
       end
 
       return [reified_parent, reified_children_hash]
+    end
+
+    private
+
+    def collect_item_type_ancestors(item_type)
+      parents_to_visit = collect_item_type_parents(item_type)
+
+      parents_to_return = []
+
+      while parents_to_visit.present?
+        current_node = parents_to_visit.shift
+
+        parents_to_return << current_node
+
+        parents_to_visit.concat(collect_item_type_parents(current_node))
+      end
+
+      parents_to_return
+    end
+
+    def collect_item_type_parents(item_type)
+      item_type.constantize.reflect_on_all_associations(:belongs_to).map(&:class_name)
     end
 
   end
